@@ -1,31 +1,52 @@
 
+import { db } from '../db';
+import { imagesTable, videoProjectsTable } from '../db/schema';
 import { type UploadImageInput, type Image } from '../schema';
+import { eq } from 'drizzle-orm';
 import * as fs from 'fs';
 import * as path from 'path';
 
 export const uploadImage = async (input: UploadImageInput): Promise<Image> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is:
-    // 1. Decode base64 image data
-    // 2. Save the image file to disk (in uploads directory)
-    // 3. Store image metadata in the database
-    // 4. Return the created image record
-    
+  try {
+    // First, verify the project exists
+    const projects = await db.select()
+      .from(videoProjectsTable)
+      .where(eq(videoProjectsTable.id, input.project_id))
+      .execute();
+
+    if (projects.length === 0) {
+      throw new Error(`Project with id ${input.project_id} not found`);
+    }
+
+    // Create uploads directory if it doesn't exist
     const uploadsDir = path.join(process.cwd(), 'uploads', 'images');
-    
-    // Placeholder implementation - real code should:
-    // - Create uploads directory if it doesn't exist
-    // - Decode base64 data and save to file
-    // - Insert record into database
-    
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+
+    // Decode base64 image data
+    const imageBuffer = Buffer.from(input.file_data, 'base64');
+    const filePath = path.join(uploadsDir, input.filename);
+
+    // Save image file to disk
+    fs.writeFileSync(filePath, imageBuffer);
+
+    // Insert image record into database
+    const result = await db.insert(imagesTable)
+      .values({
         project_id: input.project_id,
         filename: input.filename,
-        file_path: path.join(uploadsDir, input.filename),
-        file_size: Buffer.from(input.file_data, 'base64').length,
+        file_path: filePath,
+        file_size: imageBuffer.length,
         mime_type: input.mime_type,
-        order_index: input.order_index,
-        uploaded_at: new Date()
-    } as Image);
+        order_index: input.order_index
+      })
+      .returning()
+      .execute();
+
+    return result[0];
+  } catch (error) {
+    console.error('Image upload failed:', error);
+    throw error;
+  }
 };

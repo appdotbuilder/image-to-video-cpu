@@ -1,9 +1,21 @@
 
+import { db } from '../db';
+import { videoProjectsTable } from '../db/schema';
 import { type VideoProject } from '../schema';
 
 export const getVideoProjects = async (): Promise<VideoProject[]> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is fetching all video projects from the database
-    // with their current status and metadata.
-    return Promise.resolve([]);
+  try {
+    const results = await db.select()
+      .from(videoProjectsTable)
+      .execute();
+
+    // Convert numeric fields back to numbers
+    return results.map(project => ({
+      ...project,
+      duration_per_image: parseFloat(project.duration_per_image)
+    }));
+  } catch (error) {
+    console.error('Failed to fetch video projects:', error);
+    throw error;
+  }
 };

@@ -1,18 +1,28 @@
 
+import { db } from '../db';
+import { videoProjectsTable } from '../db/schema';
 import { type CreateVideoProjectInput, type VideoProject } from '../schema';
 
 export const createVideoProject = async (input: CreateVideoProjectInput): Promise<VideoProject> => {
-    // This is a placeholder declaration! Real code should be implemented here.
-    // The goal of this handler is creating a new video project in the database
-    // with the specified name, duration per image, and fps settings.
-    return Promise.resolve({
-        id: 0, // Placeholder ID
+  try {
+    // Insert video project record
+    const result = await db.insert(videoProjectsTable)
+      .values({
         name: input.name,
-        status: 'pending' as const,
-        output_path: null,
-        duration_per_image: input.duration_per_image,
-        fps: input.fps,
-        created_at: new Date(),
-        updated_at: new Date()
-    } as VideoProject);
+        duration_per_image: input.duration_per_image.toString(), // Convert number to string for numeric column
+        fps: input.fps // Integer column - no conversion needed
+      })
+      .returning()
+      .execute();
+
+    // Convert numeric fields back to numbers before returning
+    const project = result[0];
+    return {
+      ...project,
+      duration_per_image: parseFloat(project.duration_per_image) // Convert string back to number
+    };
+  } catch (error) {
+    console.error('Video project creation failed:', error);
+    throw error;
+  }
 };
