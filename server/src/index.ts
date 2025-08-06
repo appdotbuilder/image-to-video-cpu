@@ -5,6 +5,9 @@ import 'dotenv/config';
 import cors from 'cors';
 import superjson from 'superjson';
 import { z } from 'zod';
+import { promises as fs } from 'fs';
+import path from 'path';
+import { IncomingMessage, ServerResponse } from 'http';
 
 import { 
   createVideoProjectInputSchema, 
@@ -12,6 +15,9 @@ import {
   generateVideoInputSchema, 
   updateProjectStatusInputSchema 
 } from './schema';
+import { db } from './db';
+import { videoProjectsTable } from './db/schema';
+import { eq } from 'drizzle-orm';
 
 import { createVideoProject } from './handlers/create_video_project';
 import { uploadImage } from './handlers/upload_image';
@@ -60,6 +66,31 @@ const appRouter = router({
   updateProjectStatus: publicProcedure
     .input(updateProjectStatusInputSchema)
     .mutation(({ input }) => updateProjectStatus(input)),
+
+  // Get download URL for generated video
+  getVideoDownloadUrl: publicProcedure
+    .input(z.object({ projectId: z.number() }))
+    .query(async ({ input }) => {
+      // Find the project and return its video download URL
+      const projects = await db.select()
+        .from(videoProjectsTable)
+        .where(eq(videoProjectsTable.id, input.projectId))
+        .execute();
+      
+      if (projects.length === 0) {
+        throw new Error(`Project with id ${input.projectId} not found`);
+      }
+      
+      const project = projects[0];
+      
+      if (!project.output_path) {
+        throw new Error(`Video not yet generated for project ${input.projectId}`);
+      }
+      
+      // Return relative URL that will be handled by our static file server
+      const filename = path.basename(project.output_path);
+      return { downloadUrl: `/videos/${filename}` };
+    }),
 });
 
 export type AppRouter = typeof appRouter;
@@ -68,7 +99,15 @@ async function start() {
   const port = process.env['SERVER_PORT'] || 2022;
   const server = createHTTPServer({
     middleware: (req, res, next) => {
-      cors()(req, res, next);
+      // Enable CORS for all requests
+      cors()(req, res, () => {
+        // Handle video file downloads
+        if (req.url?.startsWith('/videos/')) {
+          handleVideoDownload(req, res);
+          return;
+        }
+        next();
+      });
     },
     router: appRouter,
     createContext() {
@@ -77,6 +116,57 @@ async function start() {
   });
   server.listen(port);
   console.log(`TRPC server listening at port: ${port}`);
+}
+
+/**
+ * Handle static video file serving
+ */
+async function handleVideoDownload(req: IncomingMessage, res: ServerResponse) {
+  try {
+    if (!req.url) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Bad Request');
+      return;
+    }
+
+    // Extract filename from URL path
+    const urlPath = req.url;
+    const filename = path.basename(urlPath);
+    
+    // Construct full file path
+    const videoPath = path.join('uploads', 'videos', filename);
+    
+    // Check if file exists
+    try {
+      await fs.access(videoPath);
+    } catch (error) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Video file not found');
+      return;
+    }
+
+    // Get file stats for content length
+    const stats = await fs.stat(videoPath);
+    
+    // Set appropriate headers for video download
+    res.writeHead(200, {
+      'Content-Type': 'video/mp4',
+      'Content-Length': stats.size,
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    });
+
+    // Stream the file
+    const fileData = await fs.readFile(videoPath);
+    res.end(fileData);
+    
+  } catch (error) {
+    console.error('Error serving video file:', error);
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Internal Server Error');
+  }
 }
 
 start();

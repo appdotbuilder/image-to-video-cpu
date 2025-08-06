@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { VideoIcon, ImageIcon, PlusIcon, PlayIcon } from 'lucide-react';
+import { VideoIcon, ImageIcon, PlusIcon, PlayIcon, DownloadIcon } from 'lucide-react';
 import { trpc } from '@/utils/trpc';
 import { ProjectForm } from '@/components/ProjectForm';
 import { ImageUploader } from '@/components/ImageUploader';
@@ -94,6 +94,30 @@ function App() {
     }
   }, [selectedProject]);
 
+  // Download video
+  const handleDownloadVideo = useCallback(async () => {
+    if (!selectedProject || !selectedProject.output_path) return;
+    
+    try {
+      const result = await trpc.getVideoDownloadUrl.query({ projectId: selectedProject.id });
+      
+      // Create download link and trigger download
+      const serverUrl = 'http://localhost:2022'; // This should match your server URL
+      const downloadUrl = `${serverUrl}${result.downloadUrl}`;
+      
+      // Create a temporary link element and trigger download
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `${selectedProject.name.replace(/\s+/g, '_')}_video.mp4`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+    } catch (error) {
+      console.error('Failed to download video:', error);
+    }
+  }, [selectedProject]);
+
   const getStatusColor = (status: VideoProject['status']) => {
     switch (status) {
       case 'pending': return 'bg-yellow-500';
@@ -175,14 +199,26 @@ function App() {
                         Created on {selectedProject.created_at.toLocaleDateString()}
                       </CardDescription>
                     </div>
-                    <Button
-                      onClick={handleGenerateVideo}
-                      disabled={isGenerating || projectImages.length === 0 || selectedProject.status === 'processing'}
-                      className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-                    >
-                      <PlayIcon className="h-4 w-4 mr-2" />
-                      {isGenerating ? 'Generating...' : 'Generate Video'}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleGenerateVideo}
+                        disabled={isGenerating || projectImages.length === 0 || selectedProject.status === 'processing'}
+                        className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
+                      >
+                        <PlayIcon className="h-4 w-4 mr-2" />
+                        {isGenerating ? 'Generating...' : 'Generate Video'}
+                      </Button>
+                      {selectedProject.status === 'completed' && selectedProject.output_path && (
+                        <Button
+                          onClick={handleDownloadVideo}
+                          variant="outline"
+                          className="border-green-500 text-green-600 hover:bg-green-50"
+                        >
+                          <DownloadIcon className="h-4 w-4 mr-2" />
+                          Download Video
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -248,9 +284,17 @@ function App() {
                   {selectedProject.output_path && (
                     <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                       <h4 className="font-semibold text-green-800 mb-2">✅ Video Generated!</h4>
-                      <p className="text-green-700 text-sm">
-                        Your video has been successfully generated and saved to: {selectedProject.output_path}
+                      <p className="text-green-700 text-sm mb-3">
+                        Your video has been successfully generated! Click the download button above to save it to your device.
                       </p>
+                      <div className="flex items-center gap-2 text-xs text-green-600">
+                        <VideoIcon className="h-4 w-4" />
+                        <span>Total duration: {(projectImages.length * selectedProject.duration_per_image).toFixed(1)}s</span>
+                        <span>•</span>
+                        <span>Frame rate: {selectedProject.fps} FPS</span>
+                        <span>•</span>
+                        <span>Format: MP4</span>
+                      </div>
                     </div>
                   )}
                 </CardContent>
